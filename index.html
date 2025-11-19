@@ -3,20 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Офлайн Карта: Полный Гибрид</title>
+    <title>Карта с Метками</title>
     
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-	    
-	<link rel="manifest" href="./manifest.json">
-	<meta name="theme-color" content="#ffffff">
+    <!-- Ссылка на манифест для Android -->
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#ffffff">
 
-  
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
     <style>
         body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; }
         #map { height: 100%; width: 100%; }
         
-        /* --- Стили интерфейса (без изменений) --- */
+        /* Стили интерфейса */
         .modal {
             display: none; position: fixed; z-index: 2000; left: 0; top: 0;
             width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);
@@ -27,9 +26,13 @@
             display: flex; flex-direction: column; gap: 10px;
         }
         .modal-content input, .modal-content button { padding: 10px; }
+        
+        /* Галерея */
         .popup-gallery { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
         .img-container { position: relative; width: 60px; height: 60px; }
         .popup-img { width: 100%; height: 100%; object-fit: cover; cursor: pointer; border: 1px solid #ccc; }
+        
+        /* Кнопки удаления */
         .btn-del-img {
             position: absolute; top: -5px; right: -5px;
             background: red; color: white; border-radius: 50%;
@@ -41,6 +44,8 @@
             border: none; padding: 5px; cursor: pointer; border-radius: 4px;
         }
         .btn-del-marker:hover { background-color: #cc0000; }
+
+        /* Лайтбокс */
         .lightbox {
             display: none; position: fixed; z-index: 3000; left: 0; top: 0;
             width: 100%; height: 100%; background-color: rgba(0,0,0,0.9);
@@ -48,6 +53,18 @@
         }
         .lightbox img { max-width: 90%; max-height: 90%; }
         .close-lb { position: absolute; top: 20px; right: 30px; color: white; font-size: 40px; cursor: pointer; }
+
+        /* Стили для подписи над меткой */
+        .leaflet-tooltip {
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid #666;
+            color: #000;
+            font-weight: bold;
+            font-size: 12px;
+            padding: 2px 5px;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+        }
     </style>
 </head>
 <body>
@@ -72,53 +89,42 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     
     <script>
-        // --- 1. Настройка слоев карты ---
-        
-        // 1. Обычная карта (OSM)
+        // --- 1. Инициализация карты (Гибрид) ---
         const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19, 
-            attribution: '© OpenStreetMap'
+            maxZoom: 19, attribution: '© OpenStreetMap'
         });
-
-        // 2. Спутник (Esri World Imagery)
         const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            maxZoom: 19,
-            attribution: 'Tiles © Esri'
+            maxZoom: 19, attribution: 'Tiles © Esri'
         });
-
-        // 3. Надписи и дороги (CartoDB Voyager Only Labels) - Прозрачный слой
         const labelsLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
-            maxZoom: 19,
-            attribution: '© CartoDB'
+            maxZoom: 19, attribution: '© CartoDB'
         });
 
-        // 4. Группируем Спутник + Надписи в один "Гибридный" слой
         const hybridGroup = L.layerGroup([satLayer, labelsLayer]);
 
+        // По умолчанию ставим центр на "нейтральную территорию", но он изменится при загрузке меток
         const map = L.map('map', {
-            center: [55.7558, 37.6173],
+            center: [55.7558, 37.6173], 
             zoom: 13,
-            layers: [osmLayer] // По умолчанию обычная схема
+            layers: [osmLayer] 
         });
 
-        // Меню переключения слоев
         const baseMaps = {
             "Схема (OSM)": osmLayer,
             "Спутник + Улицы": hybridGroup
         };
         L.control.layers(baseMaps).addTo(map);
 
-
-        // --- Далее стандартная логика приложения ---
-        
         const markersMap = {}; 
 
+        // --- 2. Service Worker ---
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('./sw.js')
-                .then(() => console.log('SW Registered'))
+                .then(() => console.log('SW OK'))
                 .catch(err => console.error('SW Error:', err));
         }
 
+        // --- 3. IndexedDB ---
         let db;
         const dbRequest = indexedDB.open('MapAppDB', 1);
 
@@ -131,9 +137,10 @@
 
         dbRequest.onsuccess = function(e) {
             db = e.target.result;
-            loadMarkers();
+            loadMarkers(); // Запуск загрузки меток
         };
 
+        // --- 4. Логика интерфейса ---
         let tempLatLng = null;
         const modal = document.getElementById('addModal');
 
@@ -178,17 +185,42 @@
             });
         }
 
+        // --- 5. Загрузка и отображение ---
         function loadMarkers() {
             const transaction = db.transaction(['markers'], 'readonly');
             const store = transaction.objectStore('markers');
-            store.getAll().onsuccess = function(e) {
-                e.target.result.forEach(addMarkerToMap);
+            const request = store.getAll();
+
+            request.onsuccess = function(e) {
+                const markers = e.target.result;
+
+                // Проверяем, есть ли сохраненные метки
+                if (markers && markers.length > 0) {
+                    // 1. Берем первую метку из списка
+                    const firstMarker = markers[0];
+                    
+                    // 2. Перемещаем карту к ней (зум ставим 16, чтобы было видно детали)
+                    map.setView([firstMarker.lat, firstMarker.lng], 16);
+                }
+
+                // Добавляем все метки на карту
+                markers.forEach(addMarkerToMap);
             };
         }
 
         function addMarkerToMap(data) {
             const marker = L.marker([data.lat, data.lng]).addTo(map);
             markersMap[data.id] = marker;
+
+            // --- ДОБАВЛЕНО: Название над меткой ---
+            // permanent: true — показывать всегда, не только при наведении
+            // direction: 'top' — показывать сверху
+            marker.bindTooltip(data.name, { 
+                permanent: true, 
+                direction: 'top',
+                className: 'my-label' // Можно использовать для доп стилизации
+            });
+
             updatePopupContent(marker, data);
         }
 
